@@ -443,6 +443,24 @@ class TestIntegrationLinks:
         assert not result["ok"]
         assert result["blocked"]
 
+    def test_link11_stage_claim_transfer(self):
+        orch = PipelineOrchestrator()
+        result = orch.link11_stage_claim(
+            "ORD-11", "BATCH-11", 4, "值班员",
+            late_audio_bytes=2048, late_audio_ref="s3://b/4.wav",
+        )
+        assert result["receipt"]["stage"] == "转写"
+        assert result["audio_binding"]["音轨实物"] == "ART-ORD-11"
+        assert result["confirmed"] is True
+        assert orch.stage_claim.get_order("ORD-11").closed is True
+
+    def test_link11_stage_claim_holds_without_audio(self):
+        orch = PipelineOrchestrator()
+        result = orch.link11_stage_claim(
+            "ORD-12", "BATCH-12", 4, "值班员", transfer=False)
+        assert result["receipt"]["stage"] == "转码"
+        assert result["audio_binding"]["音轨可用"] is False
+
     def test_full_pipeline_status_report(self):
         orch = PipelineOrchestrator()
         orch.link1_media_to_delivery("MEDI-F", "CAPT-F", 2, "Whisper", "SRT")
@@ -453,6 +471,7 @@ class TestIntegrationLinks:
         assert "shard_watermark" in report
         assert "redeliver" in report
         assert "quota" in report
+        assert "stage_claim" in report
 
 
 class TestServiceIntegration:

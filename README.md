@@ -66,7 +66,7 @@ npm run dev
 | 字幕包 | `subtitle_pack` | 字幕包 | 字幕包编号、关联媒体源、绑定版本 |
 | 媒体索引 | `media_index` | 索引条目 | 索引编号、关联媒体源、索引词 |
 | 分片水位 | `shard_watermark` | 水位读数 | 水位编号、关联媒体源、已处理分片序号 |
-| 失败重投 | `fail_redeliver` | 重投单 | 重投编号、关联分片、失败阶段 |
+| 失败重投 | `fail_redeliver` | 重投单 / 阶段工单 | 重投编号、关联分片、失败阶段 |
 | 转写配额 | `transcribe_quota` | 配额条目 | 配额编号、来源渠道、转写引擎 |
 | 抽样质检 | `sample_qc` | 质检样本 | 样本编号、关联任务、抽样比例 |
 | 交付回执 | `delivery_receipt` | 回执记录 | 回执编号、关联字幕包、接收方标识 |
@@ -80,6 +80,39 @@ npm run dev
   `frontend/src/domain/<模块>.ts`，用于承载真实业务差异并维持36题位容量。
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
+
+## 失败分片按阶段领办
+
+失败重投的重投单同时是一张可领办的**阶段工单**：`失败阶段` 记录它为什么失败
+（转码失败 / 转写失败），`当前阶段` 记录现在该干转码还是转写。页面入口
+`/fail_redeliver/claim`，领域逻辑在 `backend/app/pipeline/stage_claim_engine.py`。
+
+- 待办：`GET /api/fail_redeliver/todos?stage=转码|转写&page=&size=`，
+  按分片序号升序（同号按批次、工单号）排序后分页；`/todos/summary` 给阶段计数。
+- 领办：`POST /api/fail_redeliver/orders/{order}/claim`，开工回执统一返回
+  `{ order, receipt, audio_binding }`；`/start` 标记开工，`/transfer` 原单转办，
+  `/close-reclaim` 结单改领，`/confirm` 确认产出。
+- 音轨：`POST /api/fail_redeliver/artifacts` 补登转码实物；
+  `GET /api/fail_redeliver/receipts/{receipt}` 凭回执定位实际投入音轨。
+
+现场必须守住的口径：
+
+| 约束 | 实现位置 |
+| --- | --- |
+| 一张工单同一时刻最多一个执行中阶段 | `StageClaimEngine.claim/transfer` |
+| 音轨按「批次 + 分片序号」匹配，异批次同号不能代跑 | `latest_artifact/usable_artifact` |
+| 已有可验证转码实物（成功标记 + 录音字节 + 音轨引用）不再转码 | `claim` 的转码分支 |
+| 转码回执只有成功标记、没有录音时，仍领取转码并保留原失败原因 | `claim` 的转写分支回落 |
+| 开工回执绑定实际投入音轨，确认产出时核对一致 | `confirm_output` |
+| 转写任务凭回执定位音轨后才记录产出 | `TranscribeTaskService.produce_transcription` |
+
+可验证音轨 = 有成功标记 **且** 有录音字节 **且** 有音轨引用；三者缺一都只能算
+「仅成功标记无录音」，不能据此领取转写。
+
+种子数据预置了 4 号片现场：`FRDL-0004` 无音轨（先领转码，迟到音轨后可选转办或
+结单改领）、`FRDL-0005` 只有成功标记（领取时会落回转码并回显原失败原因）、
+`FRDL-0006` 已有可验证音轨（直接领转写），另有异批次 `BATCH-20260902` 的 4 号音轨
+用于验证不能跨批次代跑。
 
 领域：数据工程
 子方向：数据采集、爬虫与RPA

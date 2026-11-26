@@ -27,6 +27,7 @@ def list_entries(
     request: Request,
     keyword: str | None = Query(default=None),
     status: str | None = Query(default=None),
+    stage: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=200),
 ) -> PageResult[dict]:
@@ -37,7 +38,8 @@ def list_entries(
         if key in service.LIST_FIELDS and value.strip()
     }
     items, total = service.list_entries(
-        filters=filters, keyword=keyword, status=status, page=page, size=size)
+        filters=filters, keyword=keyword, status=status, page=page, size=size,
+        stage=stage)
     return PageResult(items=items, total=total, page=page, size=size)
 
 

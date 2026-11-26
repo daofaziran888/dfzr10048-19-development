@@ -20,8 +20,18 @@ class TranscribeTaskService(BaseModuleService):
     def produce_transcription(
         self, task_id: str, line_count: int, avg_confidence: float,
         elapsed_seconds: int,
+        receipt_id: str | None = None,
     ) -> tuple[bool, str, dict[str, Any] | None]:
-        """记录转写产出：更新文本行数、置信度与产出状态。"""
+        """记录转写产出：更新文本行数、置信度与产出状态。
+
+        传了开工回执时，必须能凭回执定位到实际投入的可用音轨，否则不允许产出。
+        """
+        binding: dict[str, Any] | None = None
+        if receipt_id:
+            ok, message, detail = self.locate_audio_receipt(receipt_id)
+            if not ok:
+                return False, message, None
+            binding = detail["audio_binding"]
         rows = store.rows(self.MODULE)
         for r in rows:
             if r.get("任务编号") == task_id:
@@ -30,8 +40,27 @@ class TranscribeTaskService(BaseModuleService):
                 r["转写耗时"] = str(elapsed_seconds)
                 r["status"] = "已产出"
                 r["pending"] = False
+                if binding is not None:
+                    r["开工回执"] = binding["开工回执"]
+                    r["投入音轨"] = binding["音轨实物"]
+                    r["音轨来源作业"] = binding["音轨来源作业"]
                 return True, f"任务 {task_id} 已产出 {line_count} 行", dict(r)
         return False, f"任务 {task_id} 不存在", None
+
+    def locate_audio_receipt(self, receipt_id: str) -> tuple[bool, str, dict[str, Any]]:
+        """凭开工回执定位实际投入的音轨；回执未绑定可用音轨时返回失败。"""
+        from app.services.fail_redeliver import get_fail_redeliver_service
+
+        ok, message, detail = get_fail_redeliver_service().receipt_detail(receipt_id)
+        if not ok:
+            return False, message, {}
+        binding = detail.get("audio_binding") or {}
+        if not binding.get("音轨可用"):
+            return False, (
+                f"开工回执 {receipt_id} 未绑定可用音轨（{binding.get('音轨实物', '-')}），"
+                "不能据此定位转写投入"
+            ), {}
+        return True, message, detail
 
     def get_by_batch(self, batch_id: str) -> list[dict[str, Any]]:
         """获取指定批次的所有转写任务。"""

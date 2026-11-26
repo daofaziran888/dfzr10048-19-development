@@ -23,6 +23,7 @@ class BaseModuleService:
         status: str | None = None,
         page: int = 1,
         size: int = 20,
+        stage: str | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         rows = list(store.rows(self.MODULE))
         for field, expected in (filters or {}).items():
@@ -36,6 +37,12 @@ class BaseModuleService:
             rows = [row for row in rows if keyword.casefold() in str(row.get(field, "")).casefold()]
         if status:
             rows = [row for row in rows if row.get("status") == status]
+        # 只有带「失败阶段」列的模块支持按阶段筛选，其余模块忽略该参数。
+        if stage and "失败阶段" in self.LIST_FIELDS:
+            rows = [
+                row for row in rows
+                if str(stage).casefold() in str(row.get("失败阶段", "")).casefold()
+            ]
         total = len(rows)
         start = (page - 1) * size
         return rows[start:start + size], total

@@ -38,6 +38,24 @@ body { margin: 0; background: #f6f8fb; color: #1f2937; }
 .create-field { display: block; margin-bottom: 10px; }
 .create-field span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
 .create-field input { width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+/* 失败分片领办待办 */
+.operator-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.operator-field input { border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: 13px; }
+.stage-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.stage-tab { border: 1px solid var(--border); background: #fff; border-radius: 999px; padding: 5px 14px; cursor: pointer; font-size: 13px; }
+.stage-tab.active { background: var(--brand); border-color: var(--brand); color: #fff; }
+.reason-cell { color: var(--muted); max-width: 220px; }
+.receipt-cell { font-family: monospace; font-size: 12px; }
+.hint { color: var(--muted); font-size: 12px; }
+.ok-text { color: #157347; }
+.pager { display: flex; align-items: center; gap: 10px; }
+.page-size { border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 12px; }
+.receipt-panel { margin-top: 16px; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+.receipt-panel h3 { font-size: 14px; margin: 0 0 10px; }
+.receipt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px 16px; margin: 0; }
+.receipt-grid dt { font-size: 12px; color: var(--muted); }
+.receipt-grid dd { margin: 2px 0 0; font-size: 13px; }
+.mono { font-family: monospace; word-break: break-all; }
 /* DAG 拓扑图 */
 .dag-wrap { position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: #fff; min-height: 320px; user-select: none; }
 .dag-svg { width: 100%; height: 100%; }

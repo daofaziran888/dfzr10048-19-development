@@ -11,6 +11,7 @@
 8. 分片水位（只有连续分片全部转写产出才推进）→失败重投
 9. 转写配额（超额排队而非丢弃已产出）
 10. 抽样质检（字错率超限→阻断版本生效→触发纠错回路）
+11. 失败分片按阶段领办（转码/转写分开领办，开工回执绑定实际投入音轨）
 """
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ from typing import Any
 
 from app.pipeline.shard_watermark_checker import ShardWatermarkChecker
 from app.pipeline.redeliver_engine import RedeliverEngine
+from app.pipeline.stage_claim_engine import StageClaimEngine
 from app.pipeline.transcribe_quota_manager import TranscribeQuotaManager
 from app.pipeline.version_conflict_resolver import VersionConflictResolver, VersionEntry
 from app.pipeline.sample_qc_gate import SampleQcGate
@@ -27,11 +29,12 @@ from app.pipeline.archive_reclaimer import ArchiveReclaimer
 
 
 class PipelineOrchestrator:
-    """管线编排器：执行 10 条业务链路并记录执行轨迹。"""
+    """管线编排器：执行贯通链路并记录执行轨迹。"""
 
     def __init__(self) -> None:
         self.shard_wm = ShardWatermarkChecker()
         self.redeliver = RedeliverEngine()
+        self.stage_claim = StageClaimEngine()
         self.quota = TranscribeQuotaManager()
         self.version = VersionConflictResolver()
         self.qc_gate = SampleQcGate()
@@ -261,12 +264,61 @@ class PipelineOrchestrator:
             "error_rate": record.error_rate, "blocked": record.blocked,
         }
 
+    def link11_stage_claim(
+        self, order_id: str, batch_id: str, shard_no: int,
+        operator: str, *, late_audio_bytes: int = 0,
+        late_audio_ref: str = "", transfer: bool = True,
+    ) -> dict[str, Any]:
+        """链路11：失败分片按阶段领办。
+
+        4 号片没有音轨时先领转码；原作业音轨迟到落盘后，沿刚领的工单
+        原单转办到转写（或结单改领），并把回执绑定的音轨交给转写核对。
+        """
+        link = "stage-claim"
+        self.stage_claim.register_order(
+            order_id, batch_id, shard_no, "转码失败", "转码进程被终止")
+        ok, msg, receipt = self.stage_claim.claim(order_id, operator)
+        self._log(link, "claim_transcode", "ok" if ok else f"FAIL:{msg}", receipt.receipt_id if receipt else None)
+
+        if late_audio_bytes > 0:
+            self.stage_claim.register_artifact(
+                f"ART-{order_id}", batch_id, shard_no,
+                job_id=f"JOB-{order_id}", audio_bytes=late_audio_bytes,
+                audio_ref=late_audio_ref,
+            )
+            self._log(link, "late_audio", "ok", f"{late_audio_bytes} bytes")
+
+        if not transfer:
+            held = self.stage_claim.get_order(order_id)
+            receipt = held.open_receipt if held else None
+            self._log(link, "hold_transcode", "ok",
+                      receipt.receipt_id if receipt else None)
+            return {
+                "link": link,
+                "receipt": receipt.to_dict() if receipt else None,
+                "audio_binding": receipt.audio_binding() if receipt else None,
+                "confirmed": False,
+            }
+
+        ok, msg, receipt = self.stage_claim.transfer(order_id, operator)
+        self._log(link, "transfer", "ok" if ok else f"FAIL:{msg}")
+        ok_confirm, confirm_msg, _ = self.stage_claim.confirm_output(
+            order_id, receipt.audio_artifact_id if receipt else None, operator)
+        self._log(link, "confirm_output", "ok" if ok_confirm else f"FAIL:{confirm_msg}")
+        return {
+            "link": link,
+            "receipt": receipt.to_dict() if receipt else None,
+            "audio_binding": receipt.audio_binding() if receipt else None,
+            "confirmed": ok_confirm,
+        }
+
     def status_report(self) -> dict[str, Any]:
         """聚合全部管线组件的运行状态报告。"""
         return {
             "audit_log": self.audit_log,
             "shard_watermark": self.shard_wm.snapshot(),
             "redeliver": self.redeliver.snapshot(),
+            "stage_claim": self.stage_claim.snapshot(),
             "quota": self.quota.snapshot(),
             "version": self.version.snapshot(),
             "qc_gate": self.qc_gate.snapshot(),
